@@ -855,7 +855,6 @@ app.post(
 
 app.get(
     "/api/devices",
-    authenticateToken,
     (req, res) => {
         res.json(sensorData);
     }
