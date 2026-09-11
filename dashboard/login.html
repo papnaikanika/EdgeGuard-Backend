@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>EdgeGuard-μGrid | Login</title>
+
+    <link
+        rel="stylesheet"
+        type="text/css"
+        href="/style.css?v=1000"
+    >
+
+</head>
+
+<body class="login-page">
+
+    <main class="login-container">
+
+        <div class="login-card">
+
+            <div class="login-header">
+
+                <h1>EdgeGuard-μGrid</h1>
+
+                <p>
+                    Edge Safety Monitoring Gateway
+                </p>
+
+            </div>
+
+
+            <form id="loginForm">
+
+                <div class="login-field">
+
+                    <label for="username">
+                        Username
+                    </label>
+
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        placeholder="Enter username"
+                        autocomplete="username"
+                        required
+                    >
+
+                </div>
+
+
+                <div class="login-field">
+
+                    <label for="password">
+                        Password
+                    </label>
+
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Enter password"
+                        autocomplete="current-password"
+                        required
+                    >
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="login-button"
+                >
+                    Sign in
+                </button>
+
+
+                <p
+                    id="loginError"
+                    class="login-error"
+                ></p>
+
+            </form>
+
+
+            <div class="login-footer">
+
+                EdgeGuard-μGrid Security Gateway
+
+            </div>
+
+        </div>
+
+    </main>
+
+
+<script src="/login.js"></script>
+
+</body>
+
+</html>

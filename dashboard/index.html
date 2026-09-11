@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>EdgeGuard-μGrid</title>
+
+    <link rel="stylesheet" type="text/css" href="/style.css?v=999">    
+</head>
+
+<body>
+    <script>
+    const token =
+        sessionStorage.getItem("edgeguard_token");
+
+    if (!token) {
+        window.location.href = "/login.html";
+    }
+</script>
+    <!-- HEADER -->
+    <header class="header">
+
+        <div>
+            <h1>EdgeGuard-μGrid</h1>
+            <p>Edge Safety Monitoring Gateway</p>
+        </div>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span id="systemStatus">SYSTEM ONLINE</span>
+        </div>
+
+    </header>
+
+
+    <!-- SUMMARY CARDS -->
+    <section class="summary">
+
+        <div class="summary-card">
+            <p>MQTT CONNECTION</p>
+            <h2 id="mqttStatus">CONNECTED</h2>
+        </div>
+
+        <div class="summary-card">
+            <p>ACTIVE DEVICES</p>
+            <h2 id="activeDevices">3</h2>
+        </div>
+
+        <div class="summary-card">
+            <p>ML RISK</p>
+            <h2 id="mlRisk">LOW</h2>
+        </div>
+
+        <div class="summary-card">
+            <p>LAST UPDATE</p>
+            <h2 id="lastUpdate">--:--:--</h2>
+        </div>
+
+    </section>
+
+
+    <!-- DEVICES -->
+    <main>
+
+        <h2 class="section-title">Device Monitoring</h2>
+
+        <section class="devices">
+
+
+            <!-- DEVICE 1 -->
+            <div class="device-card">
+
+                <div class="device-header">
+<h3>Motor</h3>                    <span id="status1" class="badge normal">NORMAL</span>
+                </div>
+<div class="device-controls">
+    <button onclick="controlDevice('motor', 'ON')">Motor ON</button>
+    <button onclick="controlDevice('motor', 'OFF')">Motor OFF</button>
+</div>
+                <div class="sensor">
+
+                    <div>
+                        <p>Current</p>
+                        <h3 id="current1">--</h3>
+                        <span>ADC</span>
+                    </div>
+
+                    <div>
+                        <p>Voltage</p>
+                        <h3 id="voltage1">--</h3>
+                        <span>ADC</span>
+                    </div>
+<div>
+    <p>Power</p>
+    <h3 id="power1">--</h3>
+    <span>W</span>
+</div>
+
+                </div>
+
+            </div>
+
+
+            <!-- DEVICE 2 -->
+            <div class="device-card">
+
+                <div class="device-header">
+<h3>Fan</h3>
+                    <span id="status2" class="badge normal">NORMAL</span>
+                </div>
+<div class="device-controls">
+    <button onclick="controlDevice('fan', 'ON')">Fan ON</button>
+    <button onclick="controlDevice('fan', 'OFF')">Fan OFF</button>
+</div>
+                <div class="sensor">
+
+                    <div>
+                        <p>Current</p>
+                        <h3 id="current2">--</h3>
+                        <span>ADC</span>
+                    </div>
+
+                    <div>
+                        <p>Voltage</p>
+                        <h3 id="voltage2">--</h3>
+                        <span>ADC</span>
+                    </div>
+                    <div>
+    <p>Power</p>
+    <h3 id="power2">--</h3>
+    <span>W</span>
+</div>     
+                </div>
+
+            </div>
+
+
+            <!-- DEVICE 3 -->
+            <div class="device-card">
+
+                <div class="device-header">
+<h3>Bulb</h3>
+                    <span id="status3" class="badge normal">NORMAL</span>
+                </div>
+<div class="device-controls">
+    <button onclick="controlDevice('bulb', 'ON')">Bulb ON</button>
+    <button onclick="controlDevice('bulb', 'OFF')">Bulb OFF</button>
+</div>
+                <div class="sensor">
+
+                    <div>
+                        <p>Current</p>
+                        <h3 id="current3">--</h3>
+                        <span>ADC</span>
+                    </div>
+
+                    <div>
+                        <p>Voltage</p>
+                        <h3 id="voltage3">--</h3>
+                        <span>ADC</span>
+                    </div>
+                    <div>
+    <p>Power</p>
+    <h3 id="power3">--</h3>
+    <span>W</span>
+</div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- LIVE GRAPH -->
+        <section class="panel">
+
+            <div class="panel-header">
+                <h2>Live Current Monitoring</h2>
+                <span>Real-time</span>
+            </div>
+
+            <div class="chart-container">
+
+                <canvas id="currentChart"></canvas>
+
+            </div>
+
+        </section>
+
+
+        <!-- ALERTS -->
+        <section class="panel">
+
+            <div class="panel-header">
+                <h2>Alerts & Events</h2>
+            </div>
+
+            <div id="alerts" class="alerts">
+
+                <div class="alert normal-alert">
+                    <span>●</span>
+                    <div>
+                        <strong>System initialized</strong>
+                        <p>No abnormal events detected.</p>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- ==========================================
+     RECENT SENSOR READINGS
+========================================== -->
+
+<section class="history-section" id="auditLogSection">
+    <div class="section-header">
+        <div>
+            <h2>Recent Sensor Readings</h2>
+            <p>Latest readings stored by EdgeGuard</p>
+        </div>
+    </div>
+
+    <div class="history-table-wrapper">
+
+        <table class="history-table">
+
+            <thead>
+                <tr>
+                    <th>Device</th>
+                    <th>Current</th>
+                    <th>Voltage</th>
+                    <th>Status</th>
+                    <th>Risk</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+
+            <tbody id="historyTableBody">
+
+                <tr>
+                    <td colspan="6">
+                        No readings available
+                    </td>
+                </tr>
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</section>
+
+
+
+    <!-- FOOTER -->
+    <footer>
+
+        <p>EdgeGuard-μGrid | Edge Computing Safety Gateway</p>
+
+    </footer>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="script.js"></script>
+
+<!-- ==========================================
+     AUDIT LOGS
+========================================== -->
+
+<section class="history-section" id="auditLogSection">
+    <div class="section-header">
+        <div>
+            <h2>Security Audit Log</h2>
+            <p>Recent administrative actions</p>
+        </div>
+    </div>
+
+    <div class="history-table-wrapper">
+
+        <table class="history-table">
+
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Details</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+
+            <tbody id="auditTableBody">
+
+                <tr>
+                    <td colspan="4">
+                        No audit events available
+                    </td>
+                </tr>
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</section>
+</body>
+
+</html>
