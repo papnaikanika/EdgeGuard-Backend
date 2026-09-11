@@ -253,9 +253,9 @@ Device: ${deviceId}
 Severity: ${severity}
 Current: ${current} A
 
-Message:
+Alert:
 ${message}
-
+This alert was generated automatically by the EdgeGuard-μGrid edge gateway.
 Please check the device immediately.`
         });
 
