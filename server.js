@@ -146,14 +146,7 @@ function predictRisk(deviceName, current, voltage) {
 
     try {
 
-        const pythonPath =
-            path.join(
-                __dirname,
-                "ml_env",
-                "bin",
-                "python"
-            );
-
+const pythonPath = process.env.PYTHON_PATH || "python3";
         const modelScript =
             path.join(
                 __dirname,
