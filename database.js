@@ -71,4 +71,30 @@ timestamp DATETIME DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
 
 console.log("Database initialized successfully");
 
+// Bootstrap first admin user
+const bcrypt = require("bcryptjs");
+
+if (process.env.BOOTSTRAP_USERNAME && process.env.BOOTSTRAP_PASSWORD) {
+    const existingUser = db.prepare(
+        "SELECT id FROM users WHERE username = ?"
+    ).get(process.env.BOOTSTRAP_USERNAME);
+
+    if (!existingUser) {
+        const hashedPassword = bcrypt.hashSync(
+            process.env.BOOTSTRAP_PASSWORD,
+            12
+        );
+
+        db.prepare(
+            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)"
+        ).run(
+            process.env.BOOTSTRAP_USERNAME,
+            hashedPassword,
+            "ADMIN"
+        );
+
+        console.log("Bootstrap admin user created");
+    }
+}
+
 module.exports = db;

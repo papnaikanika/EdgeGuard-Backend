@@ -19,7 +19,7 @@ const mqtt = require("mqtt");
 const db = require("./database");
 
 const app = express();
-
+app.set("trust proxy", 1);
 
 // =================================================
 //              SECURITY / MIDDLEWARE
