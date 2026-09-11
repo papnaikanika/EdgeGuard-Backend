@@ -866,7 +866,7 @@ app.get(
 
 app.post(
     "/api/control/:device",
-    authenticateToken,
+    
     (req, res) => {
 
         const device = req.params.device.toLowerCase();
@@ -990,7 +990,6 @@ app.get(
 
 app.get(
     "/api/history",
-    authenticateToken,
     (req, res) => {
 
         const rows = db.prepare(`
@@ -1012,7 +1011,7 @@ app.get(
 
 app.get(
     "/api/alerts",
-    authenticateToken,
+    
     (req, res) => {
 
         const alerts = db.prepare(`
@@ -1034,7 +1033,7 @@ app.get(
 
 app.patch(
     "/api/alerts/:id/resolve",
-    authenticateToken,
+   
     requireAdmin,
     (req, res) => {
 
@@ -1083,7 +1082,6 @@ app.patch(
 
 app.get(
     "/api/audit-logs",
-    authenticateToken,
     requireAdmin,
     (req, res) => {
 
