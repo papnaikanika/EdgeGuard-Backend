@@ -1210,7 +1210,7 @@ fetchHistory();
 
 setInterval(
     fetchSensorData,
-    2000
+    5000
 );
 
 setInterval(
@@ -1292,7 +1292,6 @@ async function controlDevice(device, command) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    ...AUTH_HEADERS
                 },
                 body: JSON.stringify({
                     command: command
