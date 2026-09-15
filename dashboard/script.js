@@ -91,14 +91,10 @@ async function fetchSensorData() {
 
     try {
 
-        const response =
-            await fetch(
-                `${API_URL}/api/devices`,
-                {
-                    headers: AUTH_HEADERS
-                }
-            );
-
+const response =
+    await fetch(
+        `${API_URL}/api/devices`
+    );
         if (!response.ok) {
 
             throw new Error(
