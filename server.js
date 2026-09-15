@@ -127,32 +127,21 @@ let sensorData = {
 // =================================================
 //                  ML PREDICTION
 // =================================================
-
-const { spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 
 function predictRisk(deviceName, current, voltage) {
+    return new Promise((resolve) => {
 
-    if (
-        current === null ||
-        current === undefined ||
-        voltage === null ||
-        voltage === undefined
-    ) {
-        return {
-            status: "NORMAL",
-            risk: "LOW"
-        };
-    }
+        // If sensor values are missing, return safe default
+        if (current == null || voltage == null) {
+            return resolve({
+                status: "NORMAL",
+                risk: "LOW"
+            });
+        }
 
-    try {
-
-const pythonPath = process.env.PYTHON_PATH || "python3";
-        const modelScript =
-            path.join(
-                __dirname,
-                "ml",
-                "model.py"
-            );
+        const pythonPath = process.env.PYTHON_PATH || "python3";
+        const modelScript = path.join(__dirname, "ml", "model.py");
 
         const input = JSON.stringify({
             device: deviceName,
@@ -160,60 +149,64 @@ const pythonPath = process.env.PYTHON_PATH || "python3";
             voltage: Number(voltage)
         });
 
-        const result = spawnSync(
+        const child = spawn(
             pythonPath,
             [modelScript],
             {
-                input: input,
-                encoding: "utf8"
+                stdio: ["pipe", "pipe", "pipe"]
             }
         );
 
-        if (result.error) {
+        let stdout = "";
+        let stderr = "";
 
-            console.error(
-                "ML execution error:",
-                result.error
-            );
+        child.stdout.on("data", (data) => {
+            stdout += data.toString();
+        });
 
-            return {
+        child.stderr.on("data", (data) => {
+            stderr += data.toString();
+        });
+
+        child.on("error", (error) => {
+            console.error("ML process error:", error.message);
+
+            resolve({
                 status: "NORMAL",
                 risk: "LOW"
-            };
-        }
+            });
+        });
 
-        if (result.status !== 0) {
+        child.on("close", (code) => {
 
-            console.error(
-                "ML process failed:",
-                result.stderr
-            );
+            if (code !== 0) {
+                console.error("ML process failed:", stderr);
 
-            return {
-                status: "NORMAL",
-                risk: "LOW"
-            };
-        }
+                return resolve({
+                    status: "NORMAL",
+                    risk: "LOW"
+                });
+            }
 
-        const prediction =
-            JSON.parse(
-                result.stdout.trim()
-            );
+            try {
+                const prediction = JSON.parse(stdout.trim());
 
-        return prediction;
+                resolve(prediction);
 
-    } catch (error) {
+            } catch (error) {
+                console.error("Invalid ML response:", stdout);
 
-        console.error(
-            "ML prediction error:",
-            error
-        );
+                resolve({
+                    status: "NORMAL",
+                    risk: "LOW"
+                });
+            }
+        });
 
-        return {
-            status: "NORMAL",
-            risk: "LOW"
-        };
-    }
+        // Send sensor data to Python ML model
+        child.stdin.write(input);
+        child.stdin.end();
+    });
 }
 // =================================================
 //              DATABASE STATEMENTS
@@ -313,7 +306,7 @@ sendEmailAlert(deviceId, severity, message, current);
 //                  SAVE READING
 // =================================================
 
-function saveReading(deviceId) {
+async function saveReading(deviceId) {
 
     const device =
         sensorData[`device${deviceId}`];
@@ -333,44 +326,62 @@ function saveReading(deviceId) {
         return;
     }
 
-const deviceName =
-    deviceId === 1 ? "Motor" : "Fan";
-// Device is OFF
-if (device.voltage === 0) {
-    device.status = "OFF";
-    device.risk = "LOW";
-    device.power = 0;
+    const deviceName =
+        deviceId === 1
+            ? "Motor"
+            : deviceId === 2
+            ? "Fan"
+            : "Bulb";
 
-    device.lastSavedCurrent = device.current;
-    device.lastSavedVoltage = device.voltage;
+    // Device is OFF
+    if (device.voltage === 0) {
+        device.status = "OFF";
+        device.risk = "LOW";
+        device.power = 0;
 
-    return;
-}
+        device.lastSavedCurrent = device.current;
+        device.lastSavedVoltage = device.voltage;
 
-const previousCurrent = device.lastSavedCurrent;
+        return;
+    }
 
-const prediction =
-    predictRisk(
-        deviceName,
-        device.current,
-        device.voltage
-    );
+    const previousCurrent =
+        device.lastSavedCurrent;
 
-// Detect sudden current increase
-if (
-    previousCurrent !== null &&
-    previousCurrent !== undefined &&
-    previousCurrent > 0 &&
-    device.current > previousCurrent * 1.5 &&
-    prediction.status === "NORMAL"
-) {
-    prediction.status = "WARNING";
-    prediction.risk = "MEDIUM";
+    // Run ML asynchronously
+    const prediction =
+        await predictRisk(
+            deviceName,
+            device.current,
+            device.voltage
+        );
 
-    console.log("⚠️ SUDDEN CURRENT INCREASE DETECTED");
-    console.log("Previous Current:", previousCurrent);
-    console.log("Current:", device.current);
-}
+    // Detect sudden current increase
+    if (
+        previousCurrent !== null &&
+        previousCurrent !== undefined &&
+        previousCurrent > 0 &&
+        device.current > previousCurrent * 1.5 &&
+        prediction.status === "NORMAL"
+    ) {
+        prediction.status = "WARNING";
+        prediction.risk = "MEDIUM";
+
+        console.log(
+            "⚠️ SUDDEN CURRENT INCREASE DETECTED"
+        );
+
+        console.log(
+            "Previous Current:",
+            previousCurrent
+        );
+
+        console.log(
+            "Current:",
+            device.current
+        );
+    }
+
     device.status =
         prediction.status;
 
@@ -405,16 +416,19 @@ if (
     );
 
     console.log("");
-    console.log("========== READING SAVED ==========");
+    console.log(
+        "========== READING SAVED =========="
+    );
     console.log("Device  :", deviceId);
     console.log("Current :", device.current);
     console.log("Voltage :", device.voltage);
     console.log("Power   :", power);
     console.log("Status  :", prediction.status);
     console.log("Risk    :", prediction.risk);
-    console.log("===================================");
+    console.log(
+        "==================================="
+    );
 }
-
 
 // =================================================
 //                  DEMO MODE
