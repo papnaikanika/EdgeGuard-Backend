@@ -1,0 +1,402 @@
+const express = require("express");
+const cors = require("cors");
+const mqtt = require("mqtt");
+const path = require("path");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
+
+const db = require("./database");
+
+const app = express();
+
+
+// =================================================
+//                  SECURITY / MIDDLEWARE
+// =================================================
+
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                baseUri: ["'self'"],
+                fontSrc: ["'self'", "https:", "data:"],
+                formAction: ["'self'"],
+                frameAncestors: ["'self'"],
+                imgSrc: ["'self'", "data:"],
+                objectSrc: ["'none'"],
+                scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
+                scriptSrcAttr: ["'none'"],
+                styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+                connectSrc: ["'self'"],
+                upgradeInsecureRequests: null
+            }
+        }
+    })
+);
+app.use(cors());
+
+app.use(express.json());
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+app.use("/api", apiLimiter);
+app.use(express.static(path.join(__dirname, "dashboard")));
+
+
+// =================================================
+//                       MQTT
+// =================================================
+
+const mqttClient = mqtt.connect(
+    `mqtt://${process.env.MQTT_HOST}:${process.env.MQTT_PORT}`
+);
+
+
+// =================================================
+//                LATEST SENSOR DATA
+// =================================================
+
+let sensorData = {
+
+    device1: {
+        current: null,
+        voltage: null
+    },
+
+    device2: {
+        current: null,
+        voltage: null
+    },
+
+    device3: {
+        current: null,
+        voltage: null
+    }
+
+};
+
+
+// =================================================
+//              DATABASE INSERT
+// =================================================
+
+const insertReading = db.prepare(`
+    INSERT INTO sensor_readings
+    (device_id, current, voltage)
+    VALUES (?, ?, ?)
+`);
+
+
+// =================================================
+//                  MQTT CONNECT
+// =================================================
+
+mqttClient.on("connect", () => {
+
+    console.log("======================================");
+    console.log("Connected to MQTT broker");
+    console.log("======================================");
+
+    const topics = [
+
+        "prototype/device1/current",
+        "prototype/device1/voltage",
+
+        "prototype/device2/current",
+        "prototype/device2/voltage",
+
+        "prototype/device3/current",
+        "prototype/device3/voltage"
+
+    ];
+
+    mqttClient.subscribe(topics, (err) => {
+
+        if (err) {
+
+            console.log("MQTT subscription error:", err);
+
+        } else {
+
+            console.log("Subscribed to all 6 sensor topics");
+            console.log("Waiting for sensor data...");
+
+        }
+
+    });
+
+});
+
+
+// =================================================
+//                  MQTT MESSAGE
+// =================================================
+
+mqttClient.on("message", (topic, message) => {
+
+    const value = Number(message.toString());
+
+    if (!Number.isFinite(value)) {
+
+        console.log("Invalid MQTT value received:", message.toString());
+
+        return;
+    }
+
+    console.log("");
+    console.log("========== MQTT MESSAGE ==========");
+    console.log("Topic :", topic);
+    console.log("Value :", value);
+
+
+    // DEVICE 1 CURRENT
+
+    if (topic === "prototype/device1/current") {
+
+        sensorData.device1.current = value;
+
+        insertReading.run(
+            1,
+            value,
+            sensorData.device1.voltage
+        );
+
+    }
+
+
+    // DEVICE 1 VOLTAGE
+
+    else if (topic === "prototype/device1/voltage") {
+
+        sensorData.device1.voltage = value;
+
+        insertReading.run(
+            1,
+            sensorData.device1.current,
+            value
+        );
+
+    }
+
+
+    // DEVICE 2 CURRENT
+
+    else if (topic === "prototype/device2/current") {
+
+        sensorData.device2.current = value;
+
+        insertReading.run(
+            2,
+            value,
+            sensorData.device2.voltage
+        );
+
+    }
+
+
+    // DEVICE 2 VOLTAGE
+
+    else if (topic === "prototype/device2/voltage") {
+
+        sensorData.device2.voltage = value;
+
+        insertReading.run(
+            2,
+            sensorData.device2.current,
+            value
+        );
+
+    }
+
+
+    // DEVICE 3 CURRENT
+
+    else if (topic === "prototype/device3/current") {
+
+        sensorData.device3.current = value;
+
+        insertReading.run(
+            3,
+            value,
+            sensorData.device3.voltage
+        );
+
+    }
+
+
+    // DEVICE 3 VOLTAGE
+
+    else if (topic === "prototype/device3/voltage") {
+
+        sensorData.device3.voltage = value;
+
+        insertReading.run(
+            3,
+            sensorData.device3.current,
+            value
+        );
+
+    }
+
+
+    console.log("--------------------------------------");
+
+    console.log(
+        "Device 1:",
+        sensorData.device1
+    );
+
+    console.log(
+        "Device 2:",
+        sensorData.device2
+    );
+
+    console.log(
+        "Device 3:",
+        sensorData.device3
+    );
+
+    console.log("Reading saved to database");
+
+    console.log("======================================");
+
+});
+
+
+// =================================================
+//                    MQTT ERROR
+// =================================================
+
+mqttClient.on("error", (error) => {
+
+    console.log("MQTT Error:", error.message);
+
+});
+
+
+// =================================================
+//                    DASHBOARD
+// =================================================
+
+app.get("/dashboard", (req, res) => {
+
+    res.sendFile(
+        path.join(__dirname, "dashboard", "index.html")
+    );
+
+});
+
+
+// =================================================
+//                      HOME
+// =================================================
+
+app.get("/", (req, res) => {
+
+    res.json({
+
+        project: "EdgeGuard-μGrid",
+
+        status: "Backend running",
+
+        mqtt: "Enabled",
+
+        database: "Connected"
+
+    });
+
+});
+
+
+// =================================================
+//                  ALL DEVICES API
+// =================================================
+
+app.get("/api/devices", (req, res) => {
+
+    res.json(sensorData);
+
+});
+
+
+// =================================================
+//                  CURRENT API
+// =================================================
+
+app.get("/api/current", (req, res) => {
+
+    res.json({
+
+        device1: sensorData.device1.current,
+
+        device2: sensorData.device2.current,
+
+        device3: sensorData.device3.current
+
+    });
+
+});
+
+
+// =================================================
+//                  VOLTAGE API
+// =================================================
+
+app.get("/api/voltage", (req, res) => {
+
+    res.json({
+
+        device1: sensorData.device1.voltage,
+
+        device2: sensorData.device2.voltage,
+
+        device3: sensorData.device3.voltage
+
+    });
+
+});
+
+
+// =================================================
+//                DATABASE HISTORY
+// =================================================
+
+app.get("/api/history", (req, res) => {
+
+    const rows = db.prepare(`
+        SELECT *
+        FROM sensor_readings
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `).all();
+
+    res.json(rows);
+
+});
+
+
+// =================================================
+//                  START SERVER
+// =================================================
+
+const PORT = 3000;
+
+app.listen(PORT, () => {
+
+    console.log("");
+    console.log("======================================");
+    console.log("        EdgeGuard-μGrid Backend");
+    console.log("======================================");
+    console.log("Server running on port 3000");
+    console.log("Dashboard: /dashboard");
+    console.log("Database: Connected");
+    console.log("MQTT: Configured");
+    console.log("======================================");
+
+});

@@ -1,0 +1,776 @@
+require("dotenv").config();
+const DEMO_MODE =
+    process.env.DEMO_MODE === "true";
+const {
+    createUser,
+    loginUser,
+    authenticateToken,
+    requireAdmin
+} = require("./auth");
+const express = require("express");
+const path = require("path");
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const mqtt = require("mqtt");
+
+const db = require("./database");
+
+const app = express();
+
+
+// =================================================
+//                  SECURITY / MIDDLEWARE
+// =================================================
+
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                baseUri: ["'self'"],
+                fontSrc: ["'self'", "https:", "data:"],
+                formAction: ["'self'"],
+                frameAncestors: ["'self'"],
+                imgSrc: ["'self'", "data:"],
+                objectSrc: ["'none'"],
+                scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
+                scriptSrcAttr: ["'none'"],
+                styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+                connectSrc: ["'self'"],
+                upgradeInsecureRequests: null
+            }
+        }
+    })
+);
+
+app.use(
+    cors({
+        origin: true,
+        methods: ["GET", "POST"],
+        allowedHeaders: ["Content-Type"]
+    })
+);
+
+app.use(express.json({ limit: "10kb" }));
+
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+app.use("/api", apiLimiter);
+
+app.use(
+    express.static(path.join(__dirname, "dashboard"))
+);
+
+
+// =================================================
+//                       MQTT
+// =================================================
+
+const mqttClient = mqtt.connect(
+    `mqtt://${process.env.MQTT_HOST}:${process.env.MQTT_PORT}`
+);
+
+
+// =================================================
+//                LATEST SENSOR DATA
+// =================================================
+
+let sensorData = {
+
+    device1: {
+        current: null,
+        voltage: null,
+        power: null,
+        status: "NORMAL",
+        risk: "LOW"
+    },
+
+    device2: {
+        current: null,
+        voltage: null,
+        power: null,
+        status: "NORMAL",
+        risk: "LOW"
+    },
+
+    device3: {
+        current: null,
+        voltage: null,
+        power: null,
+        status: "NORMAL",
+        risk: "LOW"
+    }
+
+};
+
+// =================================================
+//                  DEMO MODE
+// =================================================
+
+function generateDemoReading(deviceId) {
+
+    if (!DEMO_MODE) {
+        return;
+    }
+
+    const device = sensorData[`device${deviceId}`];
+
+    // Normal demonstration values
+    const demoValues = {
+        1: { current: 10, voltage: 230 },
+        2: { current: 14, voltage: 230 },
+        3: { current: 18, voltage: 230 }
+    };
+
+    const reading = demoValues[deviceId];
+
+    device.current = reading.current;
+    device.voltage = reading.voltage;
+
+    saveReading(deviceId);
+}
+
+
+// Generate demo readings every 10 seconds
+if (DEMO_MODE) {
+
+    setInterval(() => {
+
+        for (let deviceId = 1; deviceId <= 3; deviceId++) {
+            generateDemoReading(deviceId);
+        }
+
+    }, 10000);
+
+}
+
+// =================================================
+//                    ML PREDICTION
+// =================================================
+
+function predictRisk(current) {
+
+    if (current === null || current === undefined) {
+
+        return {
+            status: "NORMAL",
+            risk: "LOW"
+        };
+    }
+
+    if (current > 3500) {
+
+        return {
+            status: "ANOMALY",
+            risk: "HIGH"
+        };
+
+    }
+
+    if (current > 3200) {
+
+        return {
+            status: "WARNING",
+            risk: "MEDIUM"
+        };
+
+    }
+
+    return {
+        status: "NORMAL",
+        risk: "LOW"
+    };
+}
+
+
+// =================================================
+//              DATABASE INSERT
+// =================================================
+
+const insertReading = db.prepare(`
+    INSERT INTO sensor_readings
+    (device_id, current, voltage, power, status, risk)
+    VALUES (?, ?, ?, ?, ?, ?)
+`);
+// =================================================
+//                  ALERT DATABASE
+// =================================================
+
+const insertAlert = db.prepare(`
+    INSERT INTO alerts
+    (device_id, severity, message)
+    VALUES (?, ?, ?)
+`);
+
+const insertAuditLog = db.prepare(`
+    INSERT INTO audit_logs
+    (user_id, action, details)
+    VALUES (?, ?, ?)
+c`);
+
+function createAlert(deviceId, status, risk, current) {
+
+    if (status === "NORMAL") {
+        return;
+    }
+
+    let severity;
+    let message;
+
+    if (status === "WARNING") {
+
+        severity = "MEDIUM";
+
+        message =
+            `Unusual current detected: ${current}`;
+
+    }
+
+    else if (status === "ANOMALY") {
+
+        severity = "HIGH";
+
+        message =
+            `Abnormal current detected: ${current}`;
+
+    }
+
+    insertAlert.run(
+        deviceId,
+        severity,
+        message
+    );
+
+    console.log("");
+    console.log("========== ALERT CREATED ==========");
+    console.log("Device   :", deviceId);
+    console.log("Severity :", severity);
+    console.log("Message  :", message);
+    console.log("===================================");
+}
+
+// =================================================
+//                  SAVE READING
+// =================================================
+function saveReading(deviceId) {
+
+    const device = sensorData[`device${deviceId}`];
+
+    if (
+        device.current === null ||
+        device.voltage === null
+    ) {
+        return;
+    }
+
+    // Prevent duplicate database entries
+    if (
+        device.lastSavedCurrent === device.current &&
+        device.lastSavedVoltage === device.voltage
+    ) {
+        return;
+    }
+
+const prediction = predictRisk(device.current);
+
+device.status = prediction.status;
+device.risk = prediction.risk;
+const power =
+    device.current * device.voltage;
+
+device.power = power;
+
+insertReading.run(
+    deviceId,
+    device.current,
+    device.voltage,
+    power,
+    prediction.status,
+    prediction.risk
+);
+    device.lastSavedCurrent = device.current;
+    device.lastSavedVoltage = device.voltage;
+    createAlert(
+    deviceId,
+    prediction.status,
+    prediction.risk,
+    device.current
+);
+    console.log("");
+    console.log("========== READING SAVED ==========");
+    console.log("Device  :", deviceId);
+    console.log("Current :", device.current);
+console.log("Voltage :", device.voltage);
+console.log("Power   :", power);
+console.log("Status  :", prediction.status);
+    console.log("Risk    :", prediction.risk);
+    console.log("===================================");
+}
+// =================================================
+//                  MQTT MESSAGE
+// =================================================
+
+mqttClient.on("message", (topic, message) => {
+
+    const value = Number(message.toString());
+
+    if (!Number.isFinite(value)) {
+
+        console.log(
+            "Invalid MQTT value received:",
+            message.toString()
+        );
+
+        return;
+    }
+    if (value < 0) {
+
+    console.log(
+        "Invalid negative MQTT value received:",
+        value
+    );
+
+    return;
+}
+    console.log("");
+    console.log("========== MQTT MESSAGE ==========");
+    console.log("Topic :", topic);
+    console.log("Value :", value);
+
+
+    // =============================================
+    // DEVICE 1
+    // =============================================
+
+    if (topic === "prototype/device1/current") {
+
+        sensorData.device1.current = value;
+
+        saveReading(1);
+
+    }
+
+    else if (topic === "prototype/device1/voltage") {
+
+        sensorData.device1.voltage = value;
+
+        saveReading(1);
+
+    }
+
+
+    // =============================================
+    // DEVICE 2
+    // =============================================
+
+    else if (topic === "prototype/device2/current") {
+
+        sensorData.device2.current = value;
+
+        saveReading(2);
+
+    }
+
+    else if (topic === "prototype/device2/voltage") {
+
+        sensorData.device2.voltage = value;
+
+        saveReading(2);
+
+    }
+
+
+    // =============================================
+    // DEVICE 3
+    // =============================================
+
+    else if (topic === "prototype/device3/current") {
+
+        sensorData.device3.current = value;
+
+        saveReading(3);
+
+    }
+
+    else if (topic === "prototype/device3/voltage") {
+
+        sensorData.device3.voltage = value;
+
+        saveReading(3);
+
+    }
+
+
+    console.log("--------------------------------------");
+
+    console.log(
+        "Device 1:",
+        sensorData.device1
+    );
+
+    console.log(
+        "Device 2:",
+        sensorData.device2
+    );
+
+    console.log(
+        "Device 3:",
+        sensorData.device3
+    );
+
+    console.log("======================================");
+});
+
+
+// =================================================
+//                    MQTT ERROR
+// =================================================
+
+mqttClient.on("error", (error) => {
+
+    console.log(
+        "MQTT Error:",
+        error.message
+    );
+
+});
+
+
+// =================================================
+//                    DASHBOARD
+// =================================================
+
+app.get("/dashboard", (req, res) => {
+
+    res.sendFile(
+        path.join(
+            __dirname,
+            "dashboard",
+            "index.html"
+        )
+    );
+
+});
+
+
+// =================================================
+//                      HOME
+// =================================================
+
+app.get("/", (req, res) => {
+
+    res.json({
+
+        project: "EdgeGuard-μGrid",
+
+        status: "Backend running",
+
+        mqtt: "Enabled",
+
+        database: "Connected"
+
+    });
+
+});
+// =================================================
+//                  AUTHENTICATION
+// =================================================
+
+// LOGIN
+app.post("/api/login", (req, res) => {
+
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+
+        return res.status(400).json({
+            error: "Username and password are required"
+        });
+
+    }
+
+    const result =
+        loginUser(username, password);
+
+    if (!result) {
+
+        return res.status(401).json({
+            error: "Invalid username or password"
+        });
+
+    }
+
+    res.json(result);
+
+});
+
+
+// CREATE USER - ADMIN ONLY
+app.post(
+    "/api/users",
+    authenticateToken,
+    requireAdmin,
+    (req, res) => {
+
+        const {
+            username,
+            password,
+            role
+        } = req.body;
+
+        try {
+
+            const userId =
+                createUser(
+                    username,
+                    password,
+                    role || "VIEWER"
+                );
+
+            res.status(201).json({
+                message: "User created successfully",
+                userId
+            });
+
+        } catch (error) {
+
+            res.status(400).json({
+                error: error.message
+            });
+
+        }
+
+    }
+);
+
+// =================================================
+//                  ALL DEVICES API
+// =================================================
+
+app.get("/api/devices", authenticateToken, (req, res) => {
+    res.json(sensorData);
+
+});
+
+// =================================================
+//                    POWER API
+// =================================================
+
+app.get("/api/power", authenticateToken, (req, res) => {
+
+    res.json({
+
+        device1:
+            sensorData.device1.current !== null &&
+            sensorData.device1.voltage !== null
+                ? sensorData.device1.current *
+                  sensorData.device1.voltage
+                : null,
+
+        device2:
+            sensorData.device2.current !== null &&
+            sensorData.device2.voltage !== null
+                ? sensorData.device2.current *
+                  sensorData.device2.voltage
+                : null,
+
+        device3:
+            sensorData.device3.current !== null &&
+            sensorData.device3.voltage !== null
+                ? sensorData.device3.current *
+                  sensorData.device3.voltage
+                : null
+
+    });
+
+});
+// =================================================
+//                  CURRENT API
+// =================================================
+
+app.get("/api/current", authenticateToken, (req, res) => {
+    res.json({
+
+        device1: sensorData.device1.current,
+
+        device2: sensorData.device2.current,
+
+        device3: sensorData.device3.current
+
+    });
+
+});
+
+
+// =================================================
+//                  VOLTAGE API
+// =================================================
+
+app.get("/api/voltage", authenticateToken, (req, res) => {
+    res.json({
+
+        device1: sensorData.device1.voltage,
+
+        device2: sensorData.device2.voltage,
+
+        device3: sensorData.device3.voltage
+
+    });
+
+});
+
+
+// =================================================
+//                DATABASE HISTORY
+// =================================================
+
+app.get(
+    "/api/history",
+    authenticateToken,
+    (req, res) => {
+    const rows = db.prepare(`
+        SELECT *
+        FROM sensor_readings
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `).all();
+
+    res.json(rows);
+
+});
+// =================================================
+//                    ALERTS API
+// =================================================
+
+app.get(
+    "/api/alerts",
+    authenticateToken,
+    (req, res) => {
+    const alerts = db.prepare(`
+        SELECT *
+        FROM alerts
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `).all();
+
+    res.json(alerts);
+
+});
+// =================================================
+//                RESOLVE ALERT API
+// =================================================
+
+app.patch(
+    "/api/alerts/:id/resolve",
+    authenticateToken,
+    requireAdmin,
+    (req, res) => {
+
+        const alertId = Number(req.params.id);
+
+        if (!Number.isInteger(alertId)) {
+            return res.status(400).json({
+                error: "Invalid alert ID"
+            });
+        }
+
+        const result = db.prepare(`
+            UPDATE alerts
+            SET status = 'ACKNOWLEDGED'
+            WHERE id = ?
+        `).run(alertId);
+
+        if (result.changes === 0) {
+            return res.status(404).json({
+                error: "Alert not found"
+            });
+        }
+        insertAuditLog.run(
+    req.user.userId,
+"ACKNOWLEDGE_ALERT",
+    `Acknowledged alert ${alertId}`
+);
+
+        res.json({
+message: "Alert acknowledged successfully",
+            alertId: alertId
+        });
+
+    }
+);
+
+// =================================================
+//                 AUDIT LOGS API
+// =================================================
+
+app.get(
+    "/api/audit-logs",
+    authenticateToken,
+    requireAdmin,
+    (req, res) => {
+
+        const logs = db.prepare(`
+            SELECT *
+            FROM audit_logs
+            ORDER BY timestamp DESC
+            LIMIT 100
+        `).all();
+
+        res.json(logs);
+
+    }
+);
+
+// =================================================
+//                  ERROR HANDLER
+// =================================================
+
+app.use((err, req, res, next) => {
+
+    console.error("Server error:", err.message);
+
+    res.status(500).json({
+        error: "Internal server error"
+    });
+
+});
+// =================================================
+//                  START SERVER
+// =================================================
+
+const PORT = 3000;
+
+app.listen(PORT, () => {
+
+    console.log("");
+
+    console.log("======================================");
+    console.log("        EdgeGuard-μGrid Backend");
+    console.log("======================================");
+
+    console.log(
+        "Server running on port 3000"
+    );
+
+    console.log(
+        "Dashboard: /dashboard"
+    );
+
+    console.log(
+        "Database: Connected"
+    );
+
+    console.log(
+        "MQTT: Configured"
+    );
+
+    console.log("======================================");
+
+});

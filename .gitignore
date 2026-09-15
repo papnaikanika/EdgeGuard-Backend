@@ -1,7 +1,4 @@
-.env
-venv/
-edgeguard.db
-
 node_modules/
-*.backup
-*-backup
+.env
+.env.local
+*.log
