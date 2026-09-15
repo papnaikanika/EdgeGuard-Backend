@@ -305,7 +305,6 @@ sendEmailAlert(deviceId, severity, message, current);
 // =================================================
 //                  SAVE READING
 // =================================================
-
 async function saveReading(deviceId) {
 
     const device =
@@ -333,22 +332,55 @@ async function saveReading(deviceId) {
             ? "Fan"
             : "Bulb";
 
-    // Device is OFF
+    const previousCurrent =
+        device.lastSavedCurrent;
+
+    // ==========================================
+    // DEVICE OFF
+    // ==========================================
+
     if (device.voltage === 0) {
+
         device.status = "OFF";
         device.risk = "LOW";
         device.power = 0;
 
-        device.lastSavedCurrent = device.current;
-        device.lastSavedVoltage = device.voltage;
+        insertReading.run(
+            deviceId,
+            device.current,
+            device.voltage,
+            0,
+            "OFF",
+            "LOW"
+        );
+
+        device.lastSavedCurrent =
+            device.current;
+
+        device.lastSavedVoltage =
+            device.voltage;
+
+        console.log("");
+        console.log(
+            "========== OFF READING SAVED =========="
+        );
+        console.log("Device  :", deviceId);
+        console.log("Current :", device.current);
+        console.log("Voltage :", device.voltage);
+        console.log("Power   : 0");
+        console.log("Status  : OFF");
+        console.log("Risk    : LOW");
+        console.log(
+            "======================================="
+        );
 
         return;
     }
 
-    const previousCurrent =
-        device.lastSavedCurrent;
+    // ==========================================
+    // ML PREDICTION
+    // ==========================================
 
-    // Run ML asynchronously
     const prediction =
         await predictRisk(
             deviceName,
@@ -356,7 +388,10 @@ async function saveReading(deviceId) {
             device.voltage
         );
 
-    // Detect sudden current increase
+    // ==========================================
+    // SUDDEN CURRENT INCREASE
+    // ==========================================
+
     if (
         previousCurrent !== null &&
         previousCurrent !== undefined &&
@@ -364,6 +399,7 @@ async function saveReading(deviceId) {
         device.current > previousCurrent * 1.5 &&
         prediction.status === "NORMAL"
     ) {
+
         prediction.status = "WARNING";
         prediction.risk = "MEDIUM";
 
@@ -382,6 +418,10 @@ async function saveReading(deviceId) {
         );
     }
 
+    // ==========================================
+    // UPDATE DEVICE
+    // ==========================================
+
     device.status =
         prediction.status;
 
@@ -391,7 +431,12 @@ async function saveReading(deviceId) {
     const power =
         device.current * device.voltage;
 
-    device.power = power;
+    device.power =
+        power;
+
+    // ==========================================
+    // SAVE READING
+    // ==========================================
 
     insertReading.run(
         deviceId,
@@ -407,6 +452,10 @@ async function saveReading(deviceId) {
 
     device.lastSavedVoltage =
         device.voltage;
+
+    // ==========================================
+    // CREATE ALERT
+    // ==========================================
 
     createAlert(
         deviceId,
@@ -429,7 +478,6 @@ async function saveReading(deviceId) {
         "==================================="
     );
 }
-
 // =================================================
 //                  DEMO MODE
 // =================================================
