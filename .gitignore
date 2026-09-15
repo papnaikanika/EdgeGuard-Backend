@@ -2,3 +2,8 @@ node_modules/
 .env
 .env.local
 *.log
+edgeguard.db
+ml_env/
+venv/
+__pycache__/
+*.pyc
